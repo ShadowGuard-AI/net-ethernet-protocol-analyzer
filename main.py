@@ -51,6 +51,9 @@ def analyze_packet(packet):
     try:
         # Unpack the Ethernet header (14 bytes): destination MAC, source MAC, protocol type
         eth_header = struct.unpack("!6s6sH", packet[:14])
+        # The ! in the unpack format already gives me this field in host order. Running ntohs on
+        # it again swaps it back on a little endian host, so the name lookup below can miss and
+        # a protocol I do know gets counted as Unknown.
         eth_protocol = socket.ntohs(eth_header[2])  # Convert network byte order to host byte order
 
         # Update protocol statistics
@@ -88,6 +91,9 @@ def capture_packets(interface, num_packets, promiscuous=False):
 
         # Set promiscuous mode if requested
         if promiscuous:
+            # SO_PROMISC is not a socket level option Linux honours the way I use it here. Real
+            # promiscuous mode takes a packet membership request, so this call can throw and the
+            # outer handler ends the run before a single packet is read.
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_PROMISC, 1)
             logging.info(f"Promiscuous mode enabled on interface {interface}")
         else:
@@ -100,6 +106,8 @@ def capture_packets(interface, num_packets, promiscuous=False):
             try:
                 packet, _ = sock.recvfrom(65535)  # Max packet size for Ethernet
                 analyze_packet(packet)
+            # I never set a timeout on this socket, so this timeout branch cannot fire in practice.
+            # With no traffic arriving, recvfrom simply blocks until the count is reached.
             except socket.timeout as e:
                 logging.warning(f"Socket timeout: {e}")
             except OSError as e:
@@ -119,6 +127,8 @@ def print_statistics():
     Prints the collected protocol statistics.
     """
     print("\nProtocol Statistics:")
+    # Tagged frames land in Unknown in my counts. I read only the outer EtherType and never
+    # step past an 802.1Q tag, so VLAN carried IPv4 never counts as IPv4 here.
     for protocol, count in protocol_stats.items():
         print(f"- {protocol}: {count}")
 
@@ -131,6 +141,8 @@ def main():
     # Configure logging to file if specified
     if args.log_file:
         file_handler = logging.FileHandler(args.log_file)
+        # Adding this handler does not lower the root logger level set at the top, which stays at
+        # INFO. The debug lines I aim at the file are filtered out before they can reach it.
         file_handler.setLevel(logging.DEBUG)  # Log everything to file
         formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
         file_handler.setFormatter(formatter)
