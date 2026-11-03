@@ -51,10 +51,10 @@ def analyze_packet(packet):
     try:
         # Unpack the Ethernet header (14 bytes): destination MAC, source MAC, protocol type
         eth_header = struct.unpack("!6s6sH", packet[:14])
-        # The ! in the unpack format already gives me this field in host order. Running ntohs on
-        # it again swaps it back on a little endian host, so the name lookup below can miss and
-        # a protocol I do know gets counted as Unknown.
-        eth_protocol = socket.ntohs(eth_header[2])  # Convert network byte order to host byte order
+        # The ! in the unpack format already converts the EtherType to
+        # host order, so no further ntohs call is made: an extra swap
+        # counted known protocols as Unknown on little-endian hosts.
+        eth_protocol = eth_header[2]
 
         # Update protocol statistics
         protocol_name = PROTOCOL_NAMES.get(eth_protocol, "Unknown")
